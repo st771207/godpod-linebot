@@ -1,40 +1,40 @@
 from flask import Flask, request, abort
-from linebot.v3.messaging import MessagingApi, Configuration, ReplyMessageRequest, TextMessage, VideoMessage
-from linebot.v3.webhooks import WebhookParser, MessageEvent, TextMessageContent
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, VideoSendMessage
 import openai
 import os
 
 app = Flask(__name__)
 
+# ✅ 使用 Render 上的正確環境變數名稱
 channel_secret = os.getenv("CHANNEL_SECRET")
 channel_access_token = os.getenv("CHANNEL_ACCESS_TOKEN")
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# 設定 Messaging API 與 Webhook Parser
-configuration = Configuration(access_token=channel_access_token)
-parser = WebhookParser(channel_secret)
-messaging_api = MessagingApi(configuration)
+if channel_secret is None or channel_access_token is None:
+    raise Exception("CHANNEL_SECRET 和 CHANNEL_ACCESS_TOKEN 必須設定於環境變數中")
+
+line_bot_api = LineBotApi(channel_access_token)
+handler = WebhookHandler(channel_secret)
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers.get("X-Line-Signature", "")
+    signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
 
     try:
-        events = parser.parse(body, signature)
-        for event in events:
-            if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
-                handle_message(event)
-    except Exception as e:
-        print(f"[ERROR] {e}")
+        handler.handle(body, signature)
+    except InvalidSignatureError:
         abort(400)
 
     return "OK"
 
+@handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_msg = event.message.text
 
-    # OpenAI GPT 回覆
+    # 使用 OpenAI ChatGPT 回覆
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -44,18 +44,16 @@ def handle_message(event):
     )
     reply_text = response["choices"][0]["message"]["content"]
 
-    # 回覆 LINE 使用者
-    messaging_api.reply_message(
-        ReplyMessageRequest(
-            reply_token=event.reply_token,
-            messages=[
-                VideoMessage(
-                    original_content_url="https://storage.googleapis.com/godpod-assets/sample_response.mp4",
-                    preview_image_url="https://storage.googleapis.com/godpod-assets/sample_response_preview.jpg"
-                ),
-                TextMessage(text=reply_text)
-            ]
-        )
+    # 傳送影片與文字
+    line_bot_api.reply_message(
+        event.reply_token,
+        [
+            VideoSendMessage(
+                original_content_url="https://storage.googleapis.com/godpod-assets/sample_response.mp4",
+                preview_image_url="https://storage.googleapis.com/godpod-assets/sample_response_preview.jpg"
+            ),
+            TextSendMessage(text=reply_text)
+        ]
     )
 
 if __name__ == "__main__":
