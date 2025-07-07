@@ -56,8 +56,8 @@ def handle_message(event):
         event.reply_token,
         [
             VideoSendMessage(
-                original_content_url="https://storage.googleapis.com/godpod-assets/sample_response.mp4",
-                preview_image_url="https://storage.googleapis.com/godpod-assets/sample_response_preview.jpg"
+                original_content_url="https://github.com/st771207/godpod-assets/raw/main/01.mp4",
+                preview_image_url="https://github.com/st771207/godpod-assets/raw/main/01PR.png"
             ),
             TextSendMessage(text=reply_text)
         ]
