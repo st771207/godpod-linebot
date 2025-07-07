@@ -8,4 +8,4 @@ pip install line-bot-sdk==3.7.0
 
 
 
-Add .render-build.sh to force correct SDK version
+#Add .render-build.sh to force correct SDK version
