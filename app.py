@@ -7,7 +7,7 @@ import os
 
 app = Flask(__name__)
 
-# ✅ 使用 Render 上的正確環境變數名稱
+# ✅ 使用 Render 的環境變數
 channel_secret = os.getenv("CHANNEL_SECRET")
 channel_access_token = os.getenv("CHANNEL_ACCESS_TOKEN")
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -20,7 +20,7 @@ handler = WebhookHandler(channel_secret)
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers["X-Line-Signature"]
+    signature = request.headers.get("X-Line-Signature")
     body = request.get_data(as_text=True)
 
     try:
@@ -34,7 +34,7 @@ def callback():
 def handle_message(event):
     user_msg = event.message.text
 
-    # 使用 OpenAI ChatGPT 回覆
+    # GPT 回覆內容
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -57,4 +57,5 @@ def handle_message(event):
     )
 
 if __name__ == "__main__":
-    app.run()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
