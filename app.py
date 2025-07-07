@@ -1,16 +1,17 @@
 from flask import Flask, request, abort
-from linebot.v3.webhooks import WebhookHandler, MessageEvent, TextMessageContent
+from linebot.v3.webhooks import WebhookParser, MessageEvent, TextMessageContent
 from linebot.v3.messaging import MessagingApi, Configuration, ApiClient, ReplyMessageRequest, TextMessage
 import openai
 import os
+import json
 
 app = Flask(__name__)
 
-# 初始化 LINE API 客戶端
-configuration = Configuration(access_token=os.getenv("CHANNEL_ACCESS_TOKEN"))
-handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
+channel_secret = os.getenv("CHANNEL_SECRET")
+channel_access_token = os.getenv("CHANNEL_ACCESS_TOKEN")
 
-# 初始化 OpenAI API
+configuration = Configuration(access_token=channel_access_token)
+parser = WebhookParser(channel_secret)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 @app.route("/callback", methods=["POST"])
@@ -19,18 +20,21 @@ def callback():
     body = request.get_data(as_text=True)
 
     try:
-        handler.handle(body, signature)
+        events = parser.parse(body, signature)
     except Exception as e:
-        print(f"Handler error: {e}")
+        print("Webhook error:", e)
         abort(400)
+
+    for event in events:
+        if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
+            handle_message(event)
 
     return "OK"
 
-@handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_msg = event.message.text
 
-    # 呼叫 OpenAI GPT 回覆
+    # 呼叫 OpenAI
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -40,7 +44,7 @@ def handle_message(event):
     )
     reply_text = response["choices"][0]["message"]["content"]
 
-    # 回傳文字訊息
+    # 傳送文字訊息
     with ApiClient(configuration) as api_client:
         line_api = MessagingApi(api_client)
         line_api.reply_message(
