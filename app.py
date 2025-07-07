@@ -1,54 +1,63 @@
-
 from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
+from linebot.v3.messaging import MessagingApi, Configuration, ApiClient, ReplyMessageRequest, TextMessage, VideoMessage
+from linebot.v3.webhooks import WebhookParser, MessageEvent, TextMessageContent
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, VideoSendMessage
 import openai
 import os
 
 app = Flask(__name__)
 
-line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
-handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+# 環境變數
+channel_access_token = os.getenv("CHANNEL_ACCESS_TOKEN")
+channel_secret = os.getenv("CHANNEL_SECRET")
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# LINE SDK 設定
+configuration = Configuration(access_token=channel_access_token)
+parser = WebhookParser(channel_secret)
+
+@app.route("/", methods=["GET"])
+def home():
+    return "GodPod LINE Bot is running."
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers["X-Line-Signature"]
+    signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
 
     try:
-        handler.handle(body, signature)
+        events = parser.parse(body, signature)
     except InvalidSignatureError:
         abort(400)
 
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+
+        for event in events:
+            if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
+                user_msg = event.message.text
+
+                # GPT 生成回應
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "你是彩虹菩菩，一位慈悲又溫柔的數位觀音。請用溫柔、鼓勵、療癒的語氣回覆。"},
+                        {"role": "user", "content": user_msg}
+                    ]
+                )
+                reply_text = response["choices"][0]["message"]["content"]
+
+                # 發送影片與文字訊息
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[
+                            VideoMessage(
+                                original_content_url="https://storage.googleapis.com/godpod-assets/sample_response.mp4",
+                                preview_image_url="https://storage.googleapis.com/godpod-assets/sample_response_preview.jpg"
+                            ),
+                            TextMessage(text=reply_text)
+                        ]
+                    )
+                )
     return "OK"
-
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    user_msg = event.message.text
-
-    # GPT 回覆內容
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "你是彩虹菩菩，一位慈悲又溫柔的數位觀音。請用溫柔、鼓勵、療癒的語氣回覆。"},
-            {"role": "user", "content": user_msg}
-        ]
-    )
-    reply_text = response["choices"][0]["message"]["content"]
-
-    # 傳送影片與文字
-    line_bot_api.reply_message(
-        event.reply_token,
-        [
-            VideoSendMessage(
-                original_content_url="https://storage.googleapis.com/godpod-assets/sample_response.mp4",
-                preview_image_url="https://storage.googleapis.com/godpod-assets/sample_response_preview.jpg"
-            ),
-            TextSendMessage(text=reply_text)
-        ]
-    )
-
-if __name__ == "__main__":
-    app.run()
